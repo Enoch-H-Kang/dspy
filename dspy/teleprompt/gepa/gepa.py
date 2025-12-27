@@ -253,7 +253,7 @@ class GEPA(Teleprompter):
             Note: When both instruction_proposer and reflection_lm are set, the instruction_proposer is called
             in the reflection_lm context. However, reflection_lm is optional when using a custom instruction_proposer.
             Custom instruction proposers can invoke their own LLMs if needed.
-        component_selector: Custom component selector implementing the [ReflectionComponentSelector](https://github.com/gepa-ai/gepa/blob/main/src/gepa/proposer/reflective_mutation/base.py) protocol,
+            component_selector: Custom component selector implementing the [ReflectionComponentSelector](https://github.com/gepa-ai/gepa/blob/main/src/gepa/proposer/reflective_mutation/base.py) protocol,
             or a string specifying a built-in selector strategy. Controls which components (predictors) are selected
             for optimization at each iteration. Defaults to 'round_robin' strategy which cycles through components
             one at a time. Available string options: 'round_robin' (cycles through components sequentially),
@@ -262,6 +262,10 @@ class GEPA(Teleprompter):
             See [gepa component selectors](https://github.com/gepa-ai/gepa/blob/main/src/gepa/strategies/component_selector.py)
             for available built-in selectors and the ReflectionComponentSelector protocol for implementing custom selectors.
         add_format_failure_as_feedback: Whether to add format failures as feedback. Default is False.
+        bon: "Best of N" candidate generation per reflection. GEPA samples `bon` different evolutions and keeps
+            the one that the reflection LM predicts will perform best. Default is 1 (no sampling).
+        itr: Number of sequential evolution iterations to run per reflection call. When >1, GEPA repeatedly
+            re-applies reflection using the latest accepted instruction before returning it. Default is 1.
         use_merge: Whether to use merge-based optimization. Default is True.
         max_merge_invocations: The maximum number of merge invocations to perform. Default is 5.
         num_threads: The number of threads to use for evaluation with `Evaluate`. Optional.
@@ -356,6 +360,8 @@ class GEPA(Teleprompter):
         add_format_failure_as_feedback: bool = False,
         instruction_proposer: "ProposalFn | None" = None,
         component_selector: "ReflectionComponentSelector | str" = "round_robin",
+        bon: int = 1,
+        itr: int = 1,
         # Merge-based configuration
         use_merge: bool = True,
         max_merge_invocations: int | None = 5,
@@ -412,6 +418,12 @@ class GEPA(Teleprompter):
         self.reflection_lm = reflection_lm
         self.skip_perfect_score = skip_perfect_score
         self.add_format_failure_as_feedback = add_format_failure_as_feedback
+        if bon < 1:
+            raise ValueError("bon must be >= 1.")
+        if itr < 1:
+            raise ValueError("itr must be >= 1.")
+        self.best_of_n = bon
+        self.num_iterations = itr
 
         # Merge-based configuration
         self.use_merge = use_merge
@@ -642,6 +654,8 @@ class GEPA(Teleprompter):
             warn_on_score_mismatch=self.warn_on_score_mismatch,
             enable_tool_optimization=self.enable_tool_optimization,
             reflection_minibatch_size=self.reflection_minibatch_size,
+            best_of_n=self.best_of_n,
+            num_iterations=self.num_iterations,
         )
 
         # Build the seed candidate configuration
